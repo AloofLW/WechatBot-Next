@@ -113,6 +113,8 @@ The initial `WeChatAdapter` should expose: `start(on_message)`, `listen(conversa
 | `requests`, `beautifulsoup4`, `lxml`, `Pillow` | Network/media parsing dependencies; all are unpinned. Parser upgrades need URL/media fixture tests. |
 | `psutil`, `filelock`, `typing-extensions`, `pyperclip` | `psutil`/`filelock` are used; `pyperclip` has no import in the main Python source audited and should be verified before keeping. |
 
+The active dependency policy and the OpenAI wheel conflict are maintained in [DEPENDENCY_BASELINE.md](DEPENDENCY_BASELINE.md). The credential-free configuration template and legacy-compatible local configuration procedure are maintained in [CONFIGURATION_TRANSITION.md](CONFIGURATION_TRANSITION.md).
+
 ## Test baseline required before refactoring
 
 There is no `tests/`, `pyproject.toml`, `tox`, or pytest/unittest suite. `diagnostic_standalone` is an operational Flask diagnostic and can inspect a live WeChat process; it is not a hermetic regression suite.

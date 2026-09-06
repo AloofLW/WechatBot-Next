@@ -1,0 +1,3 @@
+# Development/test-only dependencies. Install after requirements.txt on a developer machine.
+# The production WeChat automation packages remain Windows-only and are not listed here.
+pytest==8.3.5

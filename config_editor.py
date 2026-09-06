@@ -1587,8 +1587,8 @@ def generate_prompt():
             "\n\n# 性格"
             "\n...。"
             "\n\n# 输出示例"
-            "\n...\...\..."
-            "\n...\..."
+            "\n...\\...\\..."
+            "\n...\\..."
             "\n\n# 喜好"
             "\n...。\n"
         )  # 固定提示词
@@ -4524,4 +4524,3 @@ if __name__ == '__main__':
         cleanup_interval=30,    # 清理间隔
         asyncore_use_poll=True  # 使用poll而不是select（Windows下更稳定）
     )
-    
