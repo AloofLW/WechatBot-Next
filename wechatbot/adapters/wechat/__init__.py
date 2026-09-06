@@ -7,7 +7,9 @@ from .base import (
     AdapterCapability,
     CapabilityNotSupportedError,
     ChatKind,
+    ForwardedMessage,
     InboundMessage,
+    MessageType,
     OutboundAction,
     WeChatAdapter,
 )
@@ -19,9 +21,11 @@ __all__ = [
     'CapabilityNotSupportedError',
     'ChatKind',
     'FakeWeChatAdapter',
+    'ForwardedMessage',
     'InboundMessage',
     'LegacyWeChatAdapter',
     'LegacyWeChatDependencyError',
+    'MessageType',
     'OutboundAction',
     'WeChatAdapter',
 ]

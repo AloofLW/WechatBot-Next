@@ -6,6 +6,7 @@ This module deliberately has no Windows or wxauto/wxautox imports.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Callable, FrozenSet, Protocol
@@ -14,6 +15,19 @@ from typing import Callable, FrozenSet, Protocol
 class ChatKind(str, Enum):
     PRIVATE = 'private'
     GROUP = 'group'
+
+
+class MessageType(str, Enum):
+    TEXT = 'text'
+    IMAGE = 'image'
+    EMOJI = 'emoji'
+    FILE = 'file'
+    LINK = 'link'
+    QUOTE = 'quote'
+    VOICE = 'voice'
+    MERGED = 'merged'
+    SYSTEM = 'system'
+    UNKNOWN = 'unknown'
 
 
 class AdapterCapability(str, Enum):
@@ -34,14 +48,32 @@ class CapabilityNotSupportedError(RuntimeError):
 
 
 @dataclass(frozen=True)
+class ForwardedMessage:
+    sender_id: str
+    content: str
+    timestamp: str | None = None
+    attachment_path: Path | None = None
+
+
+@dataclass(frozen=True)
 class InboundMessage:
+    """Adapter-neutral message data; ``message_id`` is an opaque adapter handle."""
+
     conversation_id: str
     sender_id: str
     content: str
+    message_id: str = ''
     kind: ChatKind = ChatKind.PRIVATE
-    message_type: str = 'text'
+    message_type: MessageType = MessageType.TEXT
     attachment_path: Path | None = None
     is_self: bool = False
+    is_friend_message: bool = True
+    is_tickle: bool = False
+    quote_content: str | None = None
+    url: str | None = None
+    timestamp: datetime | None = None
+    forwarded_messages: tuple[ForwardedMessage, ...] = ()
+    forwarded_fallback: str | None = None
     metadata: dict[str, str] = field(default_factory=dict)
 
 
@@ -74,6 +106,15 @@ class WeChatAdapter(Protocol):
 
     def send_file(self, conversation_id: str, file_path: Path) -> bool:
         """Send a local file."""
+
+    def is_group_chat(self, conversation_id: str) -> bool | None:
+        """Return the adapter-known chat kind, or None when not known."""
+
+    def download_media(self, message_id: str) -> Path:
+        """Materialize an image/file attachment identified by an opaque message ID."""
+
+    def capture_media(self, message_id: str) -> Path:
+        """Capture an emoji/media preview identified by an opaque message ID."""
 
     def voice_call(self, conversation_id: str) -> None:
         """Trigger a voice-call reminder when the adapter supports it."""

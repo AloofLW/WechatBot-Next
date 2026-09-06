@@ -4,7 +4,7 @@ The contract lives in `wechatbot.adapters.wechat.base`. It is intentionally plat
 
 ## Input and actions
 
-- `InboundMessage` is the project-owned normalized input: conversation, sender, content, private/group kind, type, optional attachment path, and metadata.
+- `InboundMessage` is the project-owned normalized input: opaque `message_id`, conversation and sender IDs, private/group kind, normalized `MessageType`, content, self/friend/tickle flags, quote, URL, optional attachment path, timestamp, forwarded-message entries/fallback, and metadata. None of these fields names a wxauto class or exposes a raw object.
 - `WeChatAdapter` owns lifecycle, normalized message delivery, text/file sending, voice call, tap actions, and recall.
 - `AdapterCapability` is the capability matrix key. Production adapters must expose only capabilities verified for their WeChat client/library version.
 - Calling an unsupported action raises `CapabilityNotSupportedError`; callers must not interpret it as a successful no-op.
@@ -15,6 +15,16 @@ The contract lives in `wechatbot.adapters.wechat.base`. It is intentionally plat
 
 ## Legacy implementation
 
-`LegacyWeChatAdapter` dynamically attempts `wxautox_wechatbot`, `wxautox`, then `wxauto` only when `initialize()` or `start()` runs. Importing the module does not load any of those packages. It owns instance construction, `Show`, `AddListenChat`, listener inspection, `KeepRunning`, text/file sending, voice call, normalized message conversion, media download/capture, URL/quote extraction, tap, and recall. Missing dependencies raise `LegacyWeChatDependencyError`; unavailable client/message operations raise `CapabilityNotSupportedError`.
+`LegacyWeChatAdapter` dynamically attempts `wxautox_wechatbot`, `wxautox`, then `wxauto` only when `initialize()` or `start()` runs. Importing the module does not load any of those packages. It owns instance construction, `Show`, `AddListenChat`, listener inspection, group lookup, `KeepRunning`, text/file sending, voice call, normalized message conversion, media download/capture, URL/quote extraction, tap, and recall. Missing dependencies raise `LegacyWeChatDependencyError`; unavailable client/message operations raise `CapabilityNotSupportedError`.
 
-The legacy adapter keeps raw message objects as private opaque handles. `normalize_message()` exposes only the project-owned `InboundMessage` and an opaque identifier in metadata. The raw listener bridge is temporary so the unchanged legacy message handler can continue to receive its existing callback arguments.
+The legacy adapter keeps raw message objects as private opaque handles keyed by `InboundMessage.message_id`. `normalize_message()` exposes only project-owned data. The bot now uses the normalized callback path; no raw callback bridge is used by `bot.py`.
+
+## Capability matrix
+
+| Capability | Legacy adapter behavior |
+| --- | --- |
+| Receive/listen/show/keep-running | Delegates when the selected legacy client exposes the corresponding method. |
+| Text/file send and voice call | Delegates to `SendMsg`, `SendFiles`, and `VoiceCall`; absent methods raise `CapabilityNotSupportedError`. |
+| Group lookup | Delegates to `GetAllSubWindow`/`ChatInfo`; missing method raises `CapabilityNotSupportedError`, unknown conversation returns `None`. |
+| Media/URL/quote | Uses the opaque message ID to access the internally retained legacy message. |
+| Tap/recall | Uses retained handles; recall preserves the existing Chinese `撤回` menu action. Missing handle/method raises `CapabilityNotSupportedError`. |

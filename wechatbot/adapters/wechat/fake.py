@@ -8,6 +8,7 @@ from typing import FrozenSet
 from .base import (
     AdapterCapability,
     CapabilityNotSupportedError,
+    ChatKind,
     InboundMessage,
     MessageHandler,
     OutboundAction,
@@ -30,6 +31,8 @@ class FakeWeChatAdapter:
         )
         self._handler: MessageHandler | None = None
         self.actions: list[OutboundAction] = []
+        self._messages: dict[str, InboundMessage] = {}
+        self._chat_kinds: dict[str, ChatKind] = {}
 
     @property
     def capabilities(self) -> FrozenSet[AdapterCapability]:
@@ -45,6 +48,9 @@ class FakeWeChatAdapter:
     def emit(self, message: InboundMessage) -> None:
         if self._handler is None:
             raise RuntimeError('FakeWeChatAdapter has not been started.')
+        if message.message_id:
+            self._messages[message.message_id] = message
+        self._chat_kinds[message.conversation_id] = message.kind
         self._handler(message)
 
     def send_text(self, conversation_id: str, text: str) -> bool:
@@ -60,6 +66,18 @@ class FakeWeChatAdapter:
             OutboundAction(conversation_id, AdapterCapability.SEND_FILE, file_path=file_path)
         )
         return True
+
+    def is_group_chat(self, conversation_id: str) -> bool | None:
+        kind = self._chat_kinds.get(conversation_id)
+        if kind is None:
+            return None
+        return kind is ChatKind.GROUP
+
+    def download_media(self, message_id: str) -> Path:
+        return self._attachment_for(message_id)
+
+    def capture_media(self, message_id: str) -> Path:
+        return self._attachment_for(message_id)
 
     def voice_call(self, conversation_id: str) -> None:
         self._record_capability_action(AdapterCapability.VOICE_CALL, conversation_id)
@@ -84,3 +102,11 @@ class FakeWeChatAdapter:
             raise CapabilityNotSupportedError(
                 f'FakeWeChatAdapter does not support {capability.value}.'
             )
+
+    def _attachment_for(self, message_id: str) -> Path:
+        message = self._messages.get(message_id)
+        if message is None or message.attachment_path is None:
+            raise CapabilityNotSupportedError(
+                f'FakeWeChatAdapter does not have media for message {message_id}.'
+            )
+        return message.attachment_path

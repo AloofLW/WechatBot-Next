@@ -2,27 +2,19 @@
 
 ## Migrated in phase one
 
-`bot.py` now imports only `LegacyWeChatAdapter`, not wxauto-family packages. The adapter initializes the WeChat client once in `main()`, supplies the nickname, shows the client, registers the existing callback, checks listener names for keep-alive, keeps the client running, and sends text/files.
+`bot.py` now imports only project-owned adapter types, not wxauto-family packages. The adapter initializes the WeChat client once in `main()`, supplies the nickname, shows the client, converts callbacks into `InboundMessage`, registers listeners, checks listener names for keep-alive, keeps the client running, sends text/files, performs group lookup, acquires media, and executes voice/tap/recall actions.
 
 This preserves `Run.bat`, the listener callback shape, recipient identifiers, retry loops, and existing send success/failure branches. The old wxautox_wechatbot → wxautox → wxauto fallback order is retained inside the adapter.
 
 ## Still direct in bot.py
 
-The following old paths still require the temporary `wx` raw-client reference or raw callback objects:
-
-| Area | Current direct dependency |
-| --- | --- |
-| Group detection | `wx.GetAllSubWindow()`, `chat.ChatInfo()`, `chat.who` |
-| Callback processing | `msg.type`, `msg.content`, `msg.sender`, `msg.attr`, `msg.to_text()`, `msg.get_url()`, `msg.quote_content`, `msg.get_messages()` |
-| Media recognition input | `msg.download()` and `msg.capture()` |
-| Special actions | retained raw message `.tickle()` and `.select_option('撤回')` handles |
-| Reminder voice call | `wx.VoiceCall()` in short and recurring reminder flows |
+There are no executable direct wxauto/wxautox client or raw-message method calls remaining in `bot.py`. It retains only project-owned `InboundMessage` fields and opaque message IDs. The former `raw_client` transitional property was removed after its last bot.py usage was migrated.
 
 ## Next order
 
-1. Change the listener bridge to pass `InboundMessage` into a new message-normalization service while preserving command/group behaviour with fixtures.
-2. Migrate group classification and media extraction to adapter methods.
-3. Move stored self/inbound message handles, tap, recall, and voice reminders to adapter methods.
-4. Remove the temporary `wx_adapter.raw_client` escape hatch only after every row above has adapter tests and Windows acceptance coverage.
+1. Add fixture-based behavior tests for group triggers, merged-message images, and special actions before extracting the remaining callback orchestration from `bot.py`.
+2. Move platform-neutral callback orchestration into an application service while retaining the existing queue/AI/memory behavior.
+3. Run the full capability matrix on a supported Windows client and record the selected library versions.
+4. Keep Windows acceptance coverage focused on the public Adapter contract so no raw-client escape hatch is reintroduced.
 
 No current-client/WeChat 4.x adapter is part of this migration.

@@ -32,6 +32,7 @@ from threading import Timer
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 import os
+from wechatbot.adapters.wechat import InboundMessage, MessageType
 from wechatbot.adapters.wechat.legacy import LegacyWeChatAdapter, LegacyWeChatDependencyError
 
 # 生成用户昵称列表和prompt映射字典
@@ -516,9 +517,7 @@ console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
 # 微信实例只由 LegacyWeChatAdapter 在 main() 启动阶段初始化一次。
-# wx 是尚未迁移的深层旧路径的临时引用；新调用应使用 wx_adapter。
 wx_adapter = LegacyWeChatAdapter()
-wx = None
 ROBOT_WX_NAME = None
 
 # 存储用户的计时器和随机等待时间
@@ -532,7 +531,7 @@ is_sending_message = False
 
 # 用于拍一拍功能的全局变量
 user_last_msg = {}  # {user_id: msg对象} 存储每个用户最后发送的消息对象
-bot_last_sent_msg = {}  # {user_id: wx.GetLastMessage()} 存储机器人发送给每个用户的最后一条消息
+bot_last_sent_msg = {}  # {user_id: opaque message_id} 存储机器人发送给每个用户的最后消息句柄
 
 # --- 定时重启相关全局变量 ---
 program_start_time = 0.0 # 程序启动时间戳
@@ -614,22 +613,12 @@ def get_chat_type_info(user_name):
         bool: True表示群聊，False表示私聊，None表示未找到或出错
     """
     try:
-        # 获取所有聊天窗口
-        chats = wx.GetAllSubWindow()
-        for chat in chats:
-            chat_info = chat.ChatInfo()
-            # 获取聊天窗口的名称/标识符
-            chat_who = getattr(chat, 'who', None) or chat_info.get('who', None)
-            
-            # 只处理匹配的聊天窗口
-            if chat_who == user_name:
-                chat_type = chat_info.get('chat_type')
-                is_group = (chat_type == 'group')
-                logger.info(f"找到用户 '{user_name}' 的聊天类型: {chat_type} ({'群聊' if is_group else '私聊'})")
-                return is_group
-        
-        logger.warning(f"未找到用户 '{user_name}' 的聊天窗口信息")
-        return None
+        is_group = wx_adapter.is_group_chat(user_name)
+        if is_group is None:
+            logger.warning(f"未找到用户 '{user_name}' 的聊天窗口信息")
+            return None
+        logger.info(f"找到用户 '{user_name}' 的聊天类型: {'group' if is_group else 'private'} ({'群聊' if is_group else '私聊'})")
+        return is_group
         
     except Exception as e:
         logger.error(f"获取用户 '{user_name}' 聊天类型时出错: {e}")
@@ -1257,7 +1246,7 @@ def keep_alive():
                     try:
                         logger.info(f"正在尝试重新添加用户 '{user}' 到监听列表...")
                         # 使用与程序启动时相同的回调函数 `message_listener` 重新添加监听
-                        wx_adapter.add_legacy_listener(nickname=user, callback=message_listener)
+                        wx_adapter.listen(nickname=user)
                         logger.info(f"已成功将用户 '{user}' 重新添加回监听列表。")
                     except Exception as e:
                         logger.error(f"重新添加用户 '{user}' 到监听列表时失败: {e}", exc_info=True)
@@ -1272,119 +1261,67 @@ def keep_alive():
         # 等待指定间隔后再进行下一次检查
         time.sleep(check_interval)
 
-def message_listener(msg, chat):
+def message_listener(msg: InboundMessage):
     global can_send_messages
-    who = chat.who 
-    msgtype = msg.type
+    who = msg.conversation_id
     original_content = msg.content
-    sender = msg.sender
-    msgattr = msg.attr
-    logger.info(f'收到来自聊天窗口 "{who}" 中用户 "{sender}" 的原始消息 (类型: {msgtype}, 属性: {msgattr}): {original_content[:100]}')
+    sender = msg.sender_id
+    logger.info(
+        f'收到来自聊天窗口 "{who}" 中用户 "{sender}" 的消息 '
+        f'(类型: {msg.message_type.value}): {original_content[:100]}'
+    )
 
-    if msgattr == 'tickle':
+    if msg.is_tickle:
         if "我拍了拍" in original_content:
             logger.info("检测到自己触发的拍一拍，已忽略。")
             return
-        else:
-            original_content = f"[收到拍一拍消息]：{original_content}"
-    elif msgattr == 'self':
-        # 保存机器人自己发送的消息，用于拍一拍自己和撤回功能
-        if msgtype == 'text':
+        original_content = f"[收到拍一拍消息]：{original_content}"
+    elif msg.is_self:
+        if msg.message_type is MessageType.TEXT:
             global bot_last_sent_msg
-            bot_last_sent_msg[who] = msg
-            logger.debug(f"已保存机器人发送给 {who} 的最后消息对象")
-            return
+            bot_last_sent_msg[who] = msg.message_id
+            logger.debug(f"已保存机器人发送给 {who} 的最后消息句柄")
         else:
-            logger.debug(f"非文本消息，已忽略。")
-            return
-    elif msgattr != 'friend':
-        logger.info(f"非好友消息，已忽略。")
+            logger.debug("非文本消息，已忽略。")
+        return
+    elif not msg.is_friend_message:
+        logger.info("非好友消息，已忽略。")
         return
 
-    if msgtype == 'voice':
-        voicetext = msg.to_text()
-        original_content = (f"[语音消息]: {voicetext}")
-    
-    if msgtype == 'link':
-        cardurl = msg.get_url()
-        original_content = (f"[卡片链接]: {cardurl}")
-
-    if msgtype == 'quote':
-        # 引用消息处理
-        quoted_msg = msg.quote_content
-        if quoted_msg:
-            original_content = f"[引用<{quoted_msg}>消息]: {msg.content}"
+    if msg.message_type is MessageType.VOICE:
+        original_content = f"[语音消息]: {msg.content}"
+    elif msg.message_type is MessageType.LINK:
+        original_content = f"[卡片链接]: {msg.url or ''}"
+    elif msg.message_type is MessageType.QUOTE and msg.quote_content:
+        original_content = f"[引用<{msg.quote_content}>消息]: {msg.content}"
+    elif msg.message_type is MessageType.MERGED:
+        logger.info("收到合并转发消息，开始处理")
+        merged_text_lines = []
+        if msg.forwarded_fallback is not None:
+            original_content = f"[合并转发消息]: {msg.forwarded_fallback}"
         else:
-            original_content = msg.content
-    
-    if msgtype == 'merge':
-        logger.info(f"收到合并转发消息，开始处理")
-        mergecontent = msg.get_messages()
-        logger.info(f"收到合并转发消息，处理完成")
-        # mergecontent 是一个列表，每个元素是 [发送者, 内容, 时间]
-        # 转换为多行文本，每行格式: [时间] 发送者: 内容
-        if isinstance(mergecontent, list):
-            merged_text_lines = []
-            for item in mergecontent:
-                if isinstance(item, list) and len(item) == 3:
-                    sender, content, timestamp = item
-                    # 修改这里的判断逻辑，正确处理WindowsPath对象
-                    # 检查是否为WindowsPath对象
-                    if hasattr(content, 'suffix') and str(content.suffix).lower() in ('.png', '.jpg', '.jpeg', '.gif', '.bmp'):
-                        # 是WindowsPath对象且是图片
-                        if ENABLE_IMAGE_RECOGNITION:
-                            try:
-                                logger.info(f"开始识别图片: {str(content)}")
-                                # 将WindowsPath对象转换为字符串
-                                image_path = str(content)
-                                # 保存当前状态
-                                original_can_send_messages = can_send_messages
-                                # 处理图片
-                                content = recognize_image_with_moonshot(image_path, is_emoji=False)
-                                if content:
-                                    logger.info(f"图片识别成功: {content}")
-                                    content = f"[图片识别结果]: {content}"
-                                else:
-                                    content = "[图片识别结果]: 无法识别图片内容"
-                                # 确保状态恢复
-                                can_send_messages = original_can_send_messages
-                            except Exception as e:
-                                content = "[图片识别失败]"
-                                logger.error(f"图片识别失败: {e}")
-                                # 确保状态恢复
-                                can_send_messages = True
-                        else:
-                            content = "[图片]"
-                    # 处理字符串路径的判断 (兼容性保留)
-                    elif isinstance(content, str) and content.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
-                        if ENABLE_IMAGE_RECOGNITION:
-                            try:
-                                logger.info(f"开始识别图片: {content}")
-                                # 保存当前状态
-                                original_can_send_messages = can_send_messages
-                                # 处理图片
-                                image_content = recognize_image_with_moonshot(content, is_emoji=False)
-                                if image_content:
-                                    logger.info(f"图片识别成功: {image_content}")
-                                    content = f"[图片识别结果]: {image_content}"
-                                else:
-                                    content = "[图片识别结果]: 无法识别图片内容"
-                                # 确保状态恢复
-                                can_send_messages = original_can_send_messages
-                            except Exception as e:
-                                content = "[图片识别失败]"
-                                logger.error(f"图片识别失败: {e}")
-                                # 确保状态恢复
-                                can_send_messages = True
-                        else:
-                            content = "[图片]"
-                    merged_text_lines.append(f"[{timestamp}] {sender}: {content}")
-                else:
-                    merged_text_lines.append(str(item))
+            for item in msg.forwarded_messages:
+                content = item.content
+                image_path = item.attachment_path or content if content.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')) else None
+                if image_path:
+                    if ENABLE_IMAGE_RECOGNITION:
+                        try:
+                            logger.info(f"开始识别图片: {image_path}")
+                            original_can_send_messages = can_send_messages
+                            recognized = recognize_image_with_moonshot(str(image_path), is_emoji=False)
+                            content = f"[图片识别结果]: {recognized}" if recognized else "[图片识别结果]: 无法识别图片内容"
+                            can_send_messages = original_can_send_messages
+                        except Exception as e:
+                            content = "[图片识别失败]"
+                            logger.error(f"图片识别失败: {e}")
+                            can_send_messages = True
+                    else:
+                        content = "[图片]"
+                timestamp = item.timestamp or ''
+                merged_text_lines.append(f"[{timestamp}] {item.sender_id}: {content}")
             merged_text = "\n".join(merged_text_lines)
             original_content = f"[合并转发消息]:\n{merged_text}"
-        else:
-            original_content = f"[合并转发消息]: {mergecontent}"
+        logger.info("收到合并转发消息，处理完成")
     
     # 在处理完所有消息类型后检查内容是否为空
     if not original_content:
@@ -1460,7 +1397,7 @@ def message_listener(msg, chat):
             logger.info(f"群聊 '{who}' 消息 (发送者: {sender}) 未满足任何基本触发条件（全局、@、关键词），将忽略。")
         
         if should_process_this_message:
-            if not msgtype == 'image':
+            if msg.message_type is not MessageType.IMAGE:
                 content_for_handler = f"[群聊消息-来自群'{who}'-发送者:{sender}]:{processed_group_content}"
             else:
                 content_for_handler = processed_group_content
@@ -1469,23 +1406,19 @@ def message_listener(msg, chat):
                 logger.info(f"群聊 '{who}' 中单独 @机器人，处理后内容为空，仍将传递给后续处理器。")
     
     if should_process_this_message:
-        msg.content = content_for_handler 
-        logger.info(f'最终准备处理消息 from chat "{who}" by sender "{sender}": {msg.content[:100]}')
+        logger.info(f'最终准备处理消息 from chat "{who}" by sender "{sender}": {content_for_handler[:100]}')
         
         # 保存用户最后发送的消息对象，用于拍一拍功能
         global user_last_msg
         if not is_user_group_chat(who):  # 只在个人聊天中保存用户消息
-            user_last_msg[who] = msg
-            logger.debug(f"已保存用户 {who} 的最后消息对象")
+            user_last_msg[who] = msg.message_id
+            logger.debug(f"已保存用户 {who} 的最后消息句柄")
         
-        if msgtype == 'emotion':
-            is_animation_emoji_in_original = True
-        else:
-            is_animation_emoji_in_original = False
+        is_animation_emoji_in_original = msg.message_type is MessageType.EMOJI
         if is_animation_emoji_in_original and ENABLE_EMOJI_RECOGNITION:
-            handle_emoji_message(msg, who)
+            handle_emoji_message(msg, who, content_for_handler)
         else:
-            handle_wxauto_message(msg, who)
+            handle_wxauto_message(msg, who, content_for_handler)
 
 def recognize_image_with_moonshot(image_path, is_emoji=False):
     # 先暂停向API发送消息队列
@@ -1553,14 +1486,14 @@ def recognize_image_with_moonshot(image_path, is_emoji=False):
         can_send_messages = True
         return ""
 
-def handle_emoji_message(msg, who):
+def handle_emoji_message(msg: InboundMessage, who, content_override=None):
     global emoji_timer
     global can_send_messages
     can_send_messages = False
 
     def timer_callback():
         with emoji_timer_lock:           
-            handle_wxauto_message(msg, who)   
+            handle_wxauto_message(msg, who, content_override)
             emoji_timer = None       
 
     with emoji_timer_lock:
@@ -1954,7 +1887,7 @@ def _handle_text_command_if_any(original_content: str, user_id: str) -> bool:
         logger.error(f"处理文本命令失败: {e}", exc_info=True)
         return False
 
-def handle_wxauto_message(msg, who):
+def handle_wxauto_message(msg: InboundMessage, who, content_override=None):
     """
     处理来自Wxauto的消息，包括可能的提醒、图片/表情、链接内容获取和常规聊天。
     """
@@ -1963,8 +1896,8 @@ def handle_wxauto_message(msg, who):
     try:
         last_received_message_timestamp = time.time()
         username = who
-        # 获取原始消息内容
-        original_content = getattr(msg, 'content', None) or getattr(msg, 'text', None)
+        # 内容已经由 Adapter 标准化；群聊入口可传入处理后的内容。
+        original_content = msg.content if content_override is None else content_override
 
         # 如果消息内容为空，则直接返回
         if not original_content:
@@ -1999,13 +1932,13 @@ def handle_wxauto_message(msg, who):
         processed_content = original_content
 
         # 检查是否为图片文件路径
-        if msg.type in ('image'):
+        if msg.message_type is MessageType.IMAGE:
             if ENABLE_IMAGE_RECOGNITION:
                 # 三次重试机制下载图片
                 img_path = None
                 for attempt in range(3):
                     try:
-                        img_path = msg.download()
+                        img_path = wx_adapter.download_media(msg.message_id)
                         if img_path:
                             logger.info(f"图片下载成功 (第{attempt + 1}次尝试): {img_path}")
                             break
@@ -2027,13 +1960,13 @@ def handle_wxauto_message(msg, who):
                 logger.info("检测到图片消息，但图片识别功能已禁用。")
 
         # 检查是否为动画表情
-        elif msg.type in ('emotion'):
+        elif msg.message_type is MessageType.EMOJI:
             if ENABLE_EMOJI_RECOGNITION:
                 # 三次重试机制截图表情
                 img_path = None
                 for attempt in range(3):
                     try:
-                        img_path = msg.capture() # 截图
+                        img_path = wx_adapter.capture_media(msg.message_id) # 截图
                         if img_path:
                             logger.info(f"表情截图成功 (第{attempt + 1}次尝试): {img_path}")
                             break
@@ -2325,7 +2258,7 @@ def send_reply(user_id, sender_name, username, original_merged_message, reply, i
                 try:
                     global user_last_msg
                     if user_id in user_last_msg and user_last_msg[user_id]:
-                        user_last_msg[user_id].tickle()
+                        wx_adapter.tap_last_inbound(user_last_msg[user_id])
                         logger.info(f"已拍一拍用户 {user_id}")
                     else:
                         logger.warning(f"无法拍一拍用户 {user_id}，找不到用户最后发送的消息")
@@ -2337,7 +2270,7 @@ def send_reply(user_id, sender_name, username, original_merged_message, reply, i
                 try:
                     global bot_last_sent_msg
                     if bot_last_sent_msg and user_id in bot_last_sent_msg and bot_last_sent_msg[user_id]:
-                        bot_last_sent_msg[user_id].tickle()
+                        wx_adapter.tap_last_outbound(bot_last_sent_msg[user_id])
                         logger.info(f"已拍一拍机器人发送给 {user_id} 的消息")
                     else:
                         logger.warning(f"无法拍一拍机器人发送给 {user_id} 的消息，找不到最后发送的消息")
@@ -2350,7 +2283,7 @@ def send_reply(user_id, sender_name, username, original_merged_message, reply, i
                     if bot_last_sent_msg and user_id in bot_last_sent_msg and bot_last_sent_msg[user_id]:
                         # 延时确保撤回最新消息
                         time.sleep(random.uniform(3.0, 5.0))
-                        bot_last_sent_msg[user_id].select_option('撤回')
+                        wx_adapter.recall_last_outbound(bot_last_sent_msg[user_id])
                         logger.info(f"已撤回机器人发送给 {user_id} 的上一条消息")
                         # 撤回后清除记录的消息对象，避免重复撤回
                         bot_last_sent_msg[user_id] = None
@@ -3779,7 +3712,7 @@ def trigger_reminder(user_id, timer_id, reminder_message):
         # 可选：如果仍需语音通话功能，保留这部分
         if get_dynamic_config('USE_VOICE_CALL_FOR_REMINDERS', USE_VOICE_CALL_FOR_REMINDERS):
             try:
-                wx.VoiceCall(user_id)
+                wx_adapter.voice_call(user_id)
                 logger.info(f"通过语音通话提醒用户 {user_id} (短期提醒)。")
             except Exception as voice_err:
                 logger.error(f"语音通话提醒失败 (短期提醒)，用户 {user_id}: {voice_err}")
@@ -4017,7 +3950,7 @@ def recurring_reminder_checker():
                                 # 保留语音通话功能（如果启用）
                                 if get_dynamic_config('USE_VOICE_CALL_FOR_REMINDERS', USE_VOICE_CALL_FOR_REMINDERS):
                                     try:
-                                        wx.VoiceCall(user_id)
+                                        wx_adapter.voice_call(user_id)
                                         logger.info(f"通过语音通话提醒用户 {user_id} ({reminder_type}提醒)。")
                                     except Exception as voice_err:
                                         logger.error(f"语音通话提醒失败 ({reminder_type}提醒)，用户 {user_id}: {voice_err}")
@@ -4511,12 +4444,12 @@ def main():
         # --- 初始化 ---
         logger.info("\033[32m初始化微信接口和清理临时文件...\033[0m")
         clean_up_temp_files()
-        global wx, ROBOT_WX_NAME
+        global ROBOT_WX_NAME
         try:
             wx_adapter.initialize()
-            wx = wx_adapter.raw_client
             ROBOT_WX_NAME = wx_adapter.nickname
             wx_adapter.show()
+            wx_adapter.start(message_listener)
         except LegacyWeChatDependencyError as e:
             logger.error(f"\033[31m无法初始化微信接口，请确保您安装的是微信3.9版本，并且已经登录！\033[0m")
             logger.error(f"微信自动化依赖不可用: {e}")
@@ -4529,7 +4462,7 @@ def main():
             if user_name == ROBOT_WX_NAME:
                 logger.error(f"\033[31m您填写的用户列表中包含自己登录的微信昵称，请删除后再试！\033[0m")
                 exit(1)
-            ListenChat = wx_adapter.add_legacy_listener(nickname=user_name, callback=message_listener)
+            ListenChat = wx_adapter.listen(nickname=user_name)
             if ListenChat:
                 logger.info(f"成功添加监听用户{ListenChat}")
             else:

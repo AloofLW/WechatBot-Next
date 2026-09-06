@@ -48,6 +48,24 @@ def test_fake_adapter_rejects_unsupported_capability_explicitly() -> None:
         adapter.voice_call('friend-1')
 
 
+def test_fake_adapter_provides_group_and_media_data_without_platform_dependencies() -> None:
+    adapter = FakeWeChatAdapter()
+    message = InboundMessage(
+        message_id='image-1',
+        conversation_id='group-1',
+        sender_id='member-1',
+        content='',
+        kind=ChatKind.GROUP,
+        attachment_path=Path('received.png'),
+    )
+    adapter.start(lambda _: None)
+    adapter.emit(message)
+
+    assert adapter.is_group_chat('group-1') is True
+    assert adapter.download_media('image-1') == Path('received.png')
+    assert adapter.capture_media('image-1') == Path('received.png')
+
+
 def test_fake_adapter_can_model_supported_special_capability() -> None:
     adapter = FakeWeChatAdapter(
         frozenset({AdapterCapability.RECALL_OUTBOUND})
