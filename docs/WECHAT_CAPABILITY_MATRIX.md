@@ -6,12 +6,12 @@ about another WeChat client, adapter package, or platform.
 
 | Capability | Fake | Legacy macOS Test | Legacy Windows | New Adapter |
 | --- | --- | --- | --- | --- |
-| Import without Windows packages | PASS | PASS | NOT_TESTED | NOT_IMPLEMENTED |
-| Adapter lifecycle / one initialization | PASS | PASS (mock client) | NOT_TESTED | NOT_IMPLEMENTED |
-| Normalized private text / self flag / unknown fallback | PASS | PASS (mock callback) | NOT_TESTED | NOT_IMPLEMENTED |
-| Normalized group session and sender | PASS | PASS (mock callback) | NOT_TESTED | NOT_IMPLEMENTED |
-| Listener registration / keep-running / Show | NOT_APPLICABLE | PASS (mock client) | NOT_TESTED | NOT_IMPLEMENTED |
-| Text send | PASS | PASS (mock client) | NOT_TESTED | NOT_IMPLEMENTED |
+| Import without Windows packages | PASS | PASS | NOT_TESTED | NOT_TESTED (PoC import test) |
+| Adapter lifecycle / one initialization | PASS | PASS (mock client) | NOT_TESTED | NOT_TESTED (PoC unit test) |
+| Normalized private text / self flag / unknown fallback | PASS | PASS (mock callback) | NOT_TESTED | NOT_TESTED (PoC unit test) |
+| Normalized group session and sender | PASS | PASS (mock callback) | NOT_TESTED | NOT_TESTED (PoC unit test) |
+| Listener registration / keep-running / Show | NOT_APPLICABLE | PASS (mock client) | NOT_TESTED | NOT_TESTED (listen PoC; no keep-running/Show) |
+| Text send | PASS | PASS (mock client) | NOT_TESTED | NOT_TESTED (PoC unit test) |
 | File send | PASS | PASS (mock client) | NOT_TESTED | NOT_IMPLEMENTED |
 | Image download | PASS | PASS (mock message) | NOT_TESTED | NOT_IMPLEMENTED |
 | Emoji capture | PASS | PASS (mock message) | NOT_TESTED | NOT_IMPLEMENTED |

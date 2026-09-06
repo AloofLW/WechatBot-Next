@@ -10,6 +10,13 @@ The main runtime imports Flask, Flask-CORS, Flask-WTF, Flask-Limiter, Waitress, 
 
 The runtime dynamically imports `wxautox_wechatbot`, `wxautox`, or `wxauto`, but none is declared in `requirements.txt`. They are Windows-only automation dependencies and must be version-pinned only after testing a specific Windows Python + WeChat client + adapter combination. Do not install, resolve, or lock them from macOS.
 
+`ModernWeChatAdapter` is an experimental, non-default Windows-only boundary for
+the external `wechatauto-replica` distribution (import name `wechatauto`). It
+is intentionally absent from `requirements.txt` until its exact version and
+security/Windows acceptance record are approved. See
+`docs/MODERN_WECHAT_BACKEND_EVALUATION.md`; do not install or resolve it from
+macOS.
+
 ## OpenAI wheel conflict
 
 `requirements.txt` requires `openai==1.84.0`, while `libs/` contains `openai-1.61.1-py3-none-any.whl`. The declared requirement is authoritative for normal online installation; the bundled wheelhouse is not a reproducible offline install set. Do not use the old wheel as a fallback for 1.84.0.
