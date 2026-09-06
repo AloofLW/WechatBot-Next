@@ -1,0 +1,48 @@
+# Python tooling
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+env/
+
+# Local secrets and machine-specific overrides
+.env
+.env.*
+!.env.example
+config.local.py
+config.override.py
+secrets.*
+*.pem
+*.key
+
+# Runtime state and private user data
+chat_contexts.json
+chat_contexts.json.lock
+user_timers.json
+recurring_reminders.json
+recurring_reminders.local.json
+Memory_Temp/
+CoreMemory/
+forum_data/
+wxautox文件下载/
+
+# Logs, temporary files, and editor/OS metadata
+*.log
+*.tmp
+*.bak
+*.bak_*
+*.corrupted_*
+*.lock
+.DS_Store
+Thumbs.db
+
+# Diagnostic output and downloaded/generated media
+diagnostic_standalone/logs/
+diagnostic_standalone/uploads/
