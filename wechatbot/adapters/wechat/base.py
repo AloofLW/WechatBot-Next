@@ -18,6 +18,9 @@ class ChatKind(str, Enum):
 
 class AdapterCapability(str, Enum):
     RECEIVE = 'receive'
+    LISTEN = 'listen'
+    SHOW = 'show'
+    KEEP_RUNNING = 'keep_running'
     SEND_TEXT = 'send_text'
     SEND_FILE = 'send_file'
     VOICE_CALL = 'voice_call'
@@ -66,10 +69,10 @@ class WeChatAdapter(Protocol):
     def stop(self) -> None:
         """Stop receiving messages and release adapter resources."""
 
-    def send_text(self, conversation_id: str, text: str) -> None:
+    def send_text(self, conversation_id: str, text: str) -> bool:
         """Send a text message."""
 
-    def send_file(self, conversation_id: str, file_path: Path) -> None:
+    def send_file(self, conversation_id: str, file_path: Path) -> bool:
         """Send a local file."""
 
     def voice_call(self, conversation_id: str) -> None:

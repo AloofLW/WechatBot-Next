@@ -12,6 +12,7 @@ from .base import (
     WeChatAdapter,
 )
 from .fake import FakeWeChatAdapter
+from .legacy import LegacyWeChatAdapter, LegacyWeChatDependencyError
 
 __all__ = [
     'AdapterCapability',
@@ -19,6 +20,8 @@ __all__ = [
     'ChatKind',
     'FakeWeChatAdapter',
     'InboundMessage',
+    'LegacyWeChatAdapter',
+    'LegacyWeChatDependencyError',
     'OutboundAction',
     'WeChatAdapter',
 ]

@@ -47,17 +47,19 @@ class FakeWeChatAdapter:
             raise RuntimeError('FakeWeChatAdapter has not been started.')
         self._handler(message)
 
-    def send_text(self, conversation_id: str, text: str) -> None:
+    def send_text(self, conversation_id: str, text: str) -> bool:
         self._require(AdapterCapability.SEND_TEXT)
         self.actions.append(
             OutboundAction(conversation_id, AdapterCapability.SEND_TEXT, content=text)
         )
+        return True
 
-    def send_file(self, conversation_id: str, file_path: Path) -> None:
+    def send_file(self, conversation_id: str, file_path: Path) -> bool:
         self._require(AdapterCapability.SEND_FILE)
         self.actions.append(
             OutboundAction(conversation_id, AdapterCapability.SEND_FILE, file_path=file_path)
         )
+        return True
 
     def voice_call(self, conversation_id: str) -> None:
         self._record_capability_action(AdapterCapability.VOICE_CALL, conversation_id)

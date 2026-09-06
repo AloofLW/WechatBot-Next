@@ -32,17 +32,7 @@ from threading import Timer
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 import os
-try:
-    from wxautox_wechatbot import WeChat
-    from wxautox_wechatbot.param import WxParam
-    WxParam.ENABLE_FILE_LOGGER = False
-    WxParam.FORCE_MESSAGE_XBIAS = True
-    os.environ["PROJECT_NAME"] = 'iwyxdxl/WeChatBot_WXAUTO_SE'
-except ImportError:
-    try:
-        from wxautox import WeChat
-    except ImportError:
-        from wxauto import WeChat
+from wechatbot.adapters.wechat.legacy import LegacyWeChatAdapter, LegacyWeChatDependencyError
 
 # 生成用户昵称列表和prompt映射字典
 user_names = [entry[0] for entry in LISTEN_LIST]
@@ -525,15 +515,11 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
-# 获取微信窗口对象
-try:
-    wx = WeChat()
-except:
-    logger.error(f"\033[31m无法初始化微信接口，请确保您安装的是微信3.9版本，并且已经登录！\033[0m")
-    logger.error("\033[31m微信3.9版本下载地址：https://dldir1v6.qq.com/weixin/Windows/WeChatSetup.exe \033[0m")
-    exit(1)
-# 获取登录用户的名字
-ROBOT_WX_NAME = wx.nickname
+# 微信实例只由 LegacyWeChatAdapter 在 main() 启动阶段初始化一次。
+# wx 是尚未迁移的深层旧路径的临时引用；新调用应使用 wx_adapter。
+wx_adapter = LegacyWeChatAdapter()
+wx = None
+ROBOT_WX_NAME = None
 
 # 存储用户的计时器和随机等待时间
 user_timers = {}
@@ -1257,7 +1243,7 @@ def keep_alive():
     while True:
         try:
             # 获取当前所有正在监听的用户昵称集合
-            current_listening_users = set(wx.listen.keys())
+            current_listening_users = wx_adapter.listening_conversations()
             
             # 获取应该被监听的用户昵称集合
             expected_users_to_listen = set(user_names)
@@ -1271,7 +1257,7 @@ def keep_alive():
                     try:
                         logger.info(f"正在尝试重新添加用户 '{user}' 到监听列表...")
                         # 使用与程序启动时相同的回调函数 `message_listener` 重新添加监听
-                        wx.AddListenChat(nickname=user, callback=message_listener)
+                        wx_adapter.add_legacy_listener(nickname=user, callback=message_listener)
                         logger.info(f"已成功将用户 '{user}' 重新添加回监听列表。")
                     except Exception as e:
                         logger.error(f"重新添加用户 '{user}' 到监听列表时失败: {e}", exc_info=True)
@@ -2318,7 +2304,7 @@ def send_reply(user_id, sender_name, username, original_merged_message, reply, i
                 success = False
                 for attempt in range(3):
                     try:
-                        if wx.SendFiles(filepath=content, who=user_id):
+                        if wx_adapter.send_file(conversation_id=user_id, file_path=content):
                             logger.info(f"已向 {user_id} 发送表情包")
                             success = True
                             break
@@ -2378,7 +2364,7 @@ def send_reply(user_id, sender_name, username, original_merged_message, reply, i
                 success = False
                 for attempt in range(3):
                     try:
-                        if wx.SendMsg(msg=content, who=user_id):
+                        if wx_adapter.send_text(conversation_id=user_id, text=content):
                             logger.info(f"分段回复 {idx+1}/{len(message_actions)} 给 {sender_name}: {content[:50]}...")
                             if ENABLE_MEMORY and not is_system_message:
                                 log_ai_reply_to_memory(username, content)
@@ -4525,11 +4511,17 @@ def main():
         # --- 初始化 ---
         logger.info("\033[32m初始化微信接口和清理临时文件...\033[0m")
         clean_up_temp_files()
-        global wx
+        global wx, ROBOT_WX_NAME
         try:
-            wx = WeChat()
-            wx.Show()
-        except:
+            wx_adapter.initialize()
+            wx = wx_adapter.raw_client
+            ROBOT_WX_NAME = wx_adapter.nickname
+            wx_adapter.show()
+        except LegacyWeChatDependencyError as e:
+            logger.error(f"\033[31m无法初始化微信接口，请确保您安装的是微信3.9版本，并且已经登录！\033[0m")
+            logger.error(f"微信自动化依赖不可用: {e}")
+            exit(1)
+        except Exception:
             logger.error(f"\033[31m无法初始化微信接口，请确保您安装的是微信3.9版本，并且已经登录！\033[0m")
             exit(1)
 
@@ -4537,7 +4529,7 @@ def main():
             if user_name == ROBOT_WX_NAME:
                 logger.error(f"\033[31m您填写的用户列表中包含自己登录的微信昵称，请删除后再试！\033[0m")
                 exit(1)
-            ListenChat = wx.AddListenChat(nickname=user_name, callback=message_listener)
+            ListenChat = wx_adapter.add_legacy_listener(nickname=user_name, callback=message_listener)
             if ListenChat:
                 logger.info(f"成功添加监听用户{ListenChat}")
             else:
@@ -4614,7 +4606,7 @@ def main():
         monitor_memory_usage_thread.start()
         logger.info("内存使用监控线程已启动。")
 
-        wx.KeepRunning()
+        wx_adapter.keep_running()
 
         while True:
             time.sleep(60)
