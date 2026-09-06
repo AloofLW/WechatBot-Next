@@ -133,9 +133,16 @@ def test_initialize_creates_one_client_instance_and_normalized_listener_register
     result = adapter.listen('friend')
 
     assert CountingClient.instances == 1
+    assert adapter.initialization_count == 1
+    assert adapter.is_started is True
     assert result == 'friend'
     assert 'friend' in adapter.listening_conversations()
     assert callback_calls == []
+
+    adapter.stop()
+    assert adapter.is_started is False
+    with pytest.raises(RuntimeError, match='start'):
+        adapter.listen('friend')
 
 
 def test_send_operations_map_to_legacy_client_methods() -> None:
@@ -200,6 +207,26 @@ def test_callback_normalizes_text_group_and_unknown_messages() -> None:
 
     assert [message.message_type for message in received] == [MessageType.TEXT, MessageType.UNKNOWN]
     assert all(message.kind is ChatKind.GROUP for message in received)
+
+
+def test_bad_callback_is_isolated_and_later_messages_are_still_delivered() -> None:
+    adapter = LegacyWeChatAdapter(
+        importer=importer_for({'wxauto': SimpleNamespace(WeChat=RawClient)})
+    )
+    group_chat = SimpleNamespace(who='group', ChatInfo=lambda: {'chat_type': 'group'})
+    adapter.start(lambda _: (_ for _ in ()).throw(ValueError('bad business callback')))
+    adapter.listen('group')
+    callback = RawClient.latest.listen['group']
+
+    callback(SimpleNamespace(content='bad', sender='member', type='text', attr='friend'), group_chat)
+
+    received = []
+    adapter.start(received.append)
+    callback(SimpleNamespace(content='good', sender='member', type='text', attr='friend'), group_chat)
+
+    assert adapter.is_started is True
+    assert [str(error) for error in adapter.callback_errors] == ['bad business callback']
+    assert [message.content for message in received] == ['good']
 
 
 def test_link_url_and_message_handle_media_operations_are_adapter_owned() -> None:

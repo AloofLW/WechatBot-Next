@@ -38,6 +38,11 @@ class FakeWeChatAdapter:
     def capabilities(self) -> FrozenSet[AdapterCapability]:
         return self._capabilities
 
+    @property
+    def is_started(self) -> bool:
+        """Expose lifecycle state for client-free behavior tests."""
+        return self._handler is not None
+
     def start(self, on_message: MessageHandler) -> None:
         self._require(AdapterCapability.RECEIVE)
         self._handler = on_message

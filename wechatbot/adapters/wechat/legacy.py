@@ -42,6 +42,8 @@ class LegacyWeChatAdapter:
         self._provider: str | None = None
         self._message_handler: MessageHandler | None = None
         self._message_handles: dict[str, Any] = {}
+        self.callback_errors: list[Exception] = []
+        self.initialization_count = 0
 
     @property
     def provider(self) -> str | None:
@@ -75,6 +77,11 @@ class LegacyWeChatAdapter:
             return
         wechat_class = self._load_wechat_class()
         self._client = wechat_class()
+        self.initialization_count += 1
+
+    @property
+    def is_started(self) -> bool:
+        return self._message_handler is not None
 
     def show(self) -> None:
         self._call_client_method('Show', AdapterCapability.SHOW)
@@ -170,7 +177,7 @@ class LegacyWeChatAdapter:
             timestamp=raw_timestamp if isinstance(raw_timestamp, datetime) else None,
             forwarded_messages=forwarded_messages,
             forwarded_fallback=forwarded_fallback,
-            metadata={'legacy_attr': attr},
+            metadata={},
         )
 
     def download_media(self, message_id: str) -> Path:
@@ -234,8 +241,12 @@ class LegacyWeChatAdapter:
 
     def _on_raw_message(self, raw_message: Any, raw_chat: Any) -> None:
         if self._message_handler is not None:
-            message = self.normalize_message(raw_message, raw_chat)
-            self._message_handler(message)
+            try:
+                message = self.normalize_message(raw_message, raw_chat)
+                self._message_handler(message)
+            except Exception as error:
+                # A malformed callback must not terminate the native listener loop.
+                self.callback_errors.append(error)
 
     def _require_client(self) -> Any:
         if self._client is None:
