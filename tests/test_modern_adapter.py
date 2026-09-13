@@ -28,8 +28,10 @@ class FakeDatabase:
 
 class FakeListener:
     latest = None
+    instances = 0
 
     def __init__(self, database, interval):
+        type(self).instances += 1
         type(self).latest = self
         self.database = database
         self.interval = interval
@@ -47,6 +49,13 @@ class FakeListener:
         self.stop_calls += 1
 
 
+class DeprecatedTopLevelListener:
+    """Matches wechatauto.Listener: an old abstract compatibility class."""
+
+    def __init__(self) -> None:
+        pass
+
+
 def backend(sent=None):
     sent = [] if sent is None else sent
 
@@ -54,7 +63,14 @@ def backend(sent=None):
         sent.append((text, who, verify))
         return True
 
-    return SimpleNamespace(WeChatDB=FakeDatabase, Listener=FakeListener, quick_send=quick_send)
+    return {
+        'wechatauto': SimpleNamespace(
+            WeChatDB=FakeDatabase,
+            Listener=DeprecatedTopLevelListener,
+            quick_send=quick_send,
+        ),
+        'wechatauto.db': SimpleNamespace(Listener=FakeListener),
+    }
 
 
 def importer_for(modules):
@@ -137,7 +153,7 @@ def test_missing_backend_is_a_clear_windows_time_error() -> None:
 def test_initialize_nickname_and_capabilities_are_backend_owned() -> None:
     FakeDatabase.instances = 0
     adapter = ModernWeChatAdapter(
-        importer=importer_for({'wechatauto': backend()}), platform_name=lambda: 'nt'
+        importer=importer_for(backend()), platform_name=lambda: 'nt'
     )
 
     adapter.initialize()
@@ -178,8 +194,8 @@ def test_normalize_current_backend_messages_preserves_session_sender_group_and_u
 
 
 def test_listener_callback_is_normalized_isolated_and_starts_once() -> None:
-    module = backend()
-    adapter = ModernWeChatAdapter(importer=importer_for({'wechatauto': module}), platform_name=lambda: 'nt')
+    FakeListener.instances = 0
+    adapter = ModernWeChatAdapter(importer=importer_for(backend()), platform_name=lambda: 'nt')
     received = []
     adapter.start(received.append)
     adapter.listen('friend-id')
@@ -191,6 +207,7 @@ def test_listener_callback_is_normalized_isolated_and_starts_once() -> None:
     callback({'content': 'bad', 'type': 'text'}, FakeListener.latest)
 
     assert [message.content for message in received] == ['first']
+    assert FakeListener.instances == 1
     assert FakeListener.latest.start_calls == 1
     assert [str(error) for error in adapter.callback_errors] == ['bad callback']
     assert adapter.is_started is True
@@ -202,7 +219,7 @@ def test_listener_callback_is_normalized_isolated_and_starts_once() -> None:
 def test_send_text_maps_to_quick_send() -> None:
     sent = []
     adapter = ModernWeChatAdapter(
-        importer=importer_for({'wechatauto': backend(sent)}), platform_name=lambda: 'nt'
+        importer=importer_for(backend(sent)), platform_name=lambda: 'nt'
     )
 
     assert adapter.send_text('friend-id', 'hello') is True

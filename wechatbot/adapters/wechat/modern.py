@@ -50,6 +50,7 @@ class ModernWeChatAdapter:
         self._listener_interval = listener_interval
         self._module: Any | None = None
         self._database: Any | None = None
+        self._listener_class: Any | None = None
         self._listener: Any | None = None
         self._listener_started = False
         self._message_handler: MessageHandler | None = None
@@ -77,7 +78,7 @@ class ModernWeChatAdapter:
         if self._module is None:
             return frozenset()
         capabilities = {AdapterCapability.RECEIVE}
-        if callable(getattr(self._module, 'Listener', None)):
+        if callable(self._listener_class):
             capabilities.add(AdapterCapability.LISTEN)
         if callable(getattr(self._module, 'quick_send', None)):
             capabilities.add(AdapterCapability.SEND_TEXT)
@@ -93,14 +94,21 @@ class ModernWeChatAdapter:
             )
         try:
             module = self._importer(self._BACKEND)
+            # The top-level ``wechatauto.Listener`` is an obsolete UIA
+            # compatibility abstract class. The active polling listener lives
+            # in ``wechatauto.db`` and accepts the existing WeChatDB client.
+            database_module = self._importer(f'{self._BACKEND}.db')
             database_class = getattr(module, 'WeChatDB')
+            listener_class = getattr(database_module, 'Listener')
         except (ImportError, AttributeError) as error:
             raise ModernWeChatDependencyError(
                 'ModernWeChatAdapter requires the Windows-only wechatauto-replica backend '
-                '(import name: wechatauto). Install and validate it only on Windows.'
+                'with wechatauto.db.Listener (import name: wechatauto). '
+                'Install and validate it only on Windows.'
             ) from error
         self._module = module
         self._database = database_class()
+        self._listener_class = listener_class
         self.initialization_count += 1
 
     def start(self, on_message: MessageHandler) -> None:
@@ -124,10 +132,10 @@ class ModernWeChatAdapter:
         self.initialize()
         listener = self._listener
         if listener is None:
-            listener_class = getattr(self._module, 'Listener', None)
+            listener_class = self._listener_class
             if not callable(listener_class):
                 raise CapabilityNotSupportedError(
-                    'Modern adapter does not support listen: backend has no Listener.'
+                    'Modern adapter does not support listen: wechatauto.db has no Listener.'
                 )
             listener = listener_class(self._require_database(), interval=self._listener_interval)
             self._listener = listener

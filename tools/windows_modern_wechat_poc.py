@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.metadata
+import inspect
 import os
 import platform
 import sys
@@ -92,6 +93,18 @@ def installed_backend_version() -> str:
         return 'distribution metadata unavailable'
 
 
+def database_listener_detail() -> str:
+    """Identify the concrete database listener selected by this backend version."""
+    database_module = __import__('wechatauto.db', fromlist=['Listener'])
+    listener_class = database_module.Listener
+    return (
+        f'module={listener_class.__module__}; '
+        f'class={listener_class.__qualname__}; '
+        f'signature={inspect.signature(listener_class)}; '
+        f'init={inspect.signature(listener_class.__init__)}'
+    )
+
+
 def confirmed(prompt: str) -> bool:
     return input(f'{prompt}\nPress Enter to continue, or type skip: ').strip().lower() != 'skip'
 
@@ -124,6 +137,12 @@ def main() -> int:
         poc.summary()
         return 1
     poc.record('adapter.provider', Status.PASS, poc.adapter.provider)
+    try:
+        listener_detail = database_listener_detail()
+    except Exception as error:
+        poc.record('backend.db_listener', Status.FAIL, f'{type(error).__name__}: {error}')
+    else:
+        poc.record('backend.db_listener', Status.PASS, listener_detail)
     poc.check('adapter.nickname', lambda: poc.adapter.nickname)
     poc.check('adapter.start', lambda: poc.adapter.start(poc.on_message))
 
