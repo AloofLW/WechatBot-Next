@@ -1,5 +1,6 @@
-# 停止维护
-- 本仓库已停止维护
+# WechatBot
+
+本仓库是基于 [iwyxdxl/WeChatBot_WXAUTO_SE](https://github.com/iwyxdxl/WeChatBot_WXAUTO_SE) 的继续开发版本；保留原项目来源与 GNU GPL-3.0-or-later 许可证说明。
 
 # 说明
 - 本项目是一个 LLM API 聚合与自动化调用工具。
