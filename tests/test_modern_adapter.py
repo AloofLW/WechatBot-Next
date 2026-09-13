@@ -72,6 +72,16 @@ def test_importing_modern_does_not_load_candidate_backend() -> None:
     assert 'wechatauto' not in sys.modules
 
 
+def test_windows_modern_poc_import_does_not_load_candidate_backend() -> None:
+    importlib.import_module('tools.windows_modern_wechat_poc')
+
+    assert 'wechatauto' not in sys.modules
+
+
+@pytest.mark.skipif(
+    sys.platform != 'darwin',
+    reason='Validates the macOS-only safe-execution contract of the Windows PoC.',
+)
 def test_windows_modern_poc_is_safe_to_execute_on_macos() -> None:
     result = subprocess.run(
         [sys.executable, str(Path('tools/windows_modern_wechat_poc.py'))],
@@ -82,6 +92,29 @@ def test_windows_modern_poc_is_safe_to_execute_on_macos() -> None:
 
     assert result.returncode == 0
     assert '[NOT_TESTED] Modern adapter PoC only initializes a client on Windows.' in result.stdout
+
+
+def test_windows_modern_poc_reports_missing_backend_without_starting_wechat(monkeypatch, capsys) -> None:
+    poc_module = importlib.import_module('tools.windows_modern_wechat_poc')
+
+    class MissingBackendAdapter:
+        provider = None
+
+        def initialize(self) -> None:
+            raise ModernWeChatDependencyError(
+                'ModernWeChatAdapter requires the Windows-only wechatauto-replica backend.'
+            )
+
+    monkeypatch.setattr(poc_module, 'ModernWeChatAdapter', MissingBackendAdapter)
+    monkeypatch.setattr(poc_module.os, 'name', 'nt')
+    monkeypatch.setattr(poc_module.platform, 'platform', lambda: 'simulated-windows')
+    monkeypatch.setattr(poc_module.platform, 'python_version', lambda: 'simulated-python')
+    monkeypatch.setattr(poc_module.sys, 'argv', ['windows_modern_wechat_poc.py'])
+
+    assert poc_module.main() == 1
+    output = capsys.readouterr().out
+    assert '[FAIL] adapter.initialize' in output
+    assert 'wechatauto-replica backend' in output
 
 
 def test_macos_initialization_fails_before_any_windows_backend_import() -> None:
